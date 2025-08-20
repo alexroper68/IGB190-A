@@ -1,38 +1,47 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
-public class Monster : MonoBehaviour
+public class Monster : MonoBehaviour, IDamageable
 {
-    // Stats
-    public float health = 40f;
-    public float maxHealth = 40f;
-    public float movementSpeed = 1.0f;
+    public float health = 100f;
+    public float maxHealth = 100f;
+    public float movementSpeed = 3.5f;
     public float attacksPerSecond = 1.0f;
     public float attackRange = 2.0f;
     public float attackDamage = 10.0f;
+    [Range(0.0f, 1.0f)] public float slashActivationPoint = 0.4f;
 
-    // Cached refs
+    private Player player;
+    private float canCastAt;
+    private float canMoveAt;
+
+    private const float MOVEMENT_DELAY_AFTER_CASTING = 1.5f;
+    private const float TURNING_SPEED = 10.0f;
+    private const float TIME_BEFORE_CORPSE_DESTROYED = 5.0f;
+
     private NavMeshAgent agentNavigation;
     private Animator animator;
-    private Player player;
 
-    void Start()
+    private enum Ability { Slash }
+    private Ability? abilityBeingCast = null;
+    private float finishAbilityCastAt;
+
+    private void Start()
     {
         agentNavigation = GetComponent<NavMeshAgent>();
         animator = GetComponentInChildren<Animator>();
-        player = FindObjectOfType<Player>();
-
-        if (agentNavigation != null)
-            agentNavigation.speed = movementSpeed;
-
-        if (player == null)
-            Debug.LogWarning("Monster: no Player found in scene");
+        player = GameObject.FindObjectOfType<Player>();
+        if (agentNavigation != null) agentNavigation.speed = movementSpeed;
+        canMoveAt = Time.time + 1.0f;
+        if (player != null) transform.LookAt(player.transform);
     }
 
-    void Update()
+    private void Update()
     {
+        if (player == null || player.isDead) return;
         UpdateMovement();
-        // later you can call HandleAttacks() here
+        UpdateAbilityCasting();
     }
 
     private void UpdateMovement()
@@ -40,14 +49,71 @@ public class Monster : MonoBehaviour
         if (animator != null && agentNavigation != null)
             animator.SetFloat("Speed", agentNavigation.velocity.magnitude);
 
-        if (player != null && agentNavigation != null)
+        if (Time.time > canMoveAt)
             agentNavigation.SetDestination(player.transform.position);
     }
 
-    // call to apply damage
-    public void TakeDamage(float amount)
+    private void UpdateAbilityCasting()
     {
-        health = Mathf.Max(health - amount, 0f);
-        // you can play hit anim or check for death here
+        if (Vector3.Distance(transform.position, player.transform.position) < attackRange && Time.time > canCastAt)
+            StartCastingSlash();
+
+        if (abilityBeingCast != null && Time.time > finishAbilityCastAt)
+        {
+            if (abilityBeingCast == Ability.Slash)
+                FinishCastingSlash();
+        }
+
+        if (abilityBeingCast != null)
+        {
+            Quaternion look = Quaternion.LookRotation(player.transform.position - transform.position);
+            transform.rotation = Quaternion.Lerp(transform.rotation, look, Time.deltaTime * TURNING_SPEED);
+        }
+    }
+
+    private void StartCastingSlash()
+    {
+        agentNavigation.SetDestination(transform.position);
+        abilityBeingCast = Ability.Slash;
+
+        animator.CrossFadeInFixedTime("Attack", 0.2f);
+        animator.SetFloat("AttackSpeed", attacksPerSecond);
+
+        float castTime = 1.0f / attacksPerSecond;
+        canCastAt = Time.time + castTime;
+        finishAbilityCastAt = Time.time + slashActivationPoint * castTime;
+        canMoveAt = finishAbilityCastAt + MOVEMENT_DELAY_AFTER_CASTING;
+    }
+
+    private void FinishCastingSlash()
+    {
+        abilityBeingCast = null;
+
+        Vector3 hitPoint = transform.position + transform.forward * attackRange;
+        List<Player> targets = Utilities.GetAllWithinRange<Player>(hitPoint, attackRange);
+        foreach (var t in targets)
+            t.TakeDamage(attackDamage);
+    }
+
+    public virtual void TakeDamage(float amount)
+    {
+        health -= amount;
+        if (health <= 0f) Kill();
+    }
+
+    public virtual void Kill()
+    {
+        if (animator != null)
+        {
+            animator.SetTrigger("Die");
+            animator.transform.SetParent(null);
+            Destroy(animator.gameObject, TIME_BEFORE_CORPSE_DESTROYED);
+        }
+        Destroy(gameObject);
+    }
+
+    public float GetCurrentHealthPercent()
+    {
+        return Mathf.Clamp01(health / maxHealth);
     }
 }

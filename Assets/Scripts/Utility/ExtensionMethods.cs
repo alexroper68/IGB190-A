@@ -1,50 +1,48 @@
-using System.Collections;
 using System.Collections.Generic;
-using Unity.VisualScripting;
 using UnityEngine;
 
 public static class Utilities
 {
-    public static List<T> GetAllWithinRange<T>(Vector3 position, float maxDistance) where T : MonoBehaviour
+    public static List<T> GetAllWithinRange<T>(Vector3 worldPos, float radius) where T : Component
     {
-        List<T> withinRange = new List<T>();
-        T[] objs = GameObject.FindObjectsOfType<T>();
-        foreach (T obj in objs)
+        var results = new List<T>();
+        var cols = Physics.OverlapSphere(worldPos, radius);
+        foreach (var c in cols)
         {
-            float distance = Vector3.Distance(obj.transform.position, position);
-            if (distance < maxDistance)
-            {
-                withinRange.Add(obj);
-            }
+            var comp = c.GetComponentInParent<T>();
+            if (comp != null && !results.Contains(comp))
+                results.Add(comp);
         }
-        return withinRange;
+        return results;
     }
 
     public static T GetClosest<T>(Vector3 position, float maxDistance) where T : MonoBehaviour
     {
         T closest = null;
         float closestDistance = maxDistance;
-        T[] objs = GameObject.FindObjectsOfType<T>();
-        foreach (T obj in objs)
+        var objs = GameObject.FindObjectsOfType<T>();
+        foreach (var obj in objs)
         {
-            float distance = Vector3.Distance(obj.transform.position, position);
-            if (distance < closestDistance)
+            float d = Vector3.Distance(obj.transform.position, position);
+            if (d < closestDistance)
             {
                 closest = obj;
-                closestDistance = distance;
+                closestDistance = d;
             }
         }
         return closest;
     }
 
-    public static Vector3 GetMouseWorldPosition ()
+    public static Vector3 GetMouseWorldPosition()
     {
-        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-        RaycastHit hit;
-        if (Physics.Raycast(ray, out hit))
-        {
+        var cam = Camera.main;
+        if (cam == null) return Vector3.zero;
+
+        Ray ray = cam.ScreenPointToRay(Input.mousePosition);
+        if (Physics.Raycast(ray, out RaycastHit hit, 1000f))
             return hit.point;
-        }
-        return Vector3.positiveInfinity;
+
+        Plane ground = new Plane(Vector3.up, Vector3.zero);
+        return ground.Raycast(ray, out float enter) ? ray.GetPoint(enter) : Vector3.zero;
     }
 }
